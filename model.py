@@ -753,8 +753,8 @@ class DetectionLayer(KE.Layer):
     def call(self, inputs):
         def wrapper(rois, mrcnn_class, mrcnn_bbox, image_meta):
             detections_batch = []
+            _, _, window, _ = parse_image_meta(image_meta)
             for b in range(self.config.BATCH_SIZE):
-                _, _, window, _ = parse_image_meta(image_meta)
                 detections = refine_detections(
                     rois[b], mrcnn_class[b], mrcnn_bbox[b], window[b], self.config)
                 # Pad with zeros if detections < DETECTION_MAX_INSTANCES
@@ -2189,6 +2189,14 @@ class MaskRCNN():
         self.set_trainable(layers)
         self.compile(learning_rate, self.config.LEARNING_MOMENTUM)
 
+        # Work-around for Windows: Keras fails on Windows when using
+        # multiprocessing workers. See discussion here:
+        # https://github.com/matterport/Mask_RCNN/issues/13#issuecomment-353124009
+        if os.name is 'nt':
+            workers = 0
+        else:
+            workers = max(self.config.BATCH_SIZE // 2, 2)
+
         self.keras_model.fit_generator(
             train_generator,
             initial_epoch=self.epoch,
@@ -2198,7 +2206,7 @@ class MaskRCNN():
             validation_data=next(val_generator),
             validation_steps=self.config.VALIDATION_STEPS,
             max_queue_size=100,
-            workers=max(self.config.BATCH_SIZE // 2, 2),
+            workers=workers,
             use_multiprocessing=True,
         )
         self.epoch = max(self.epoch, epochs)
